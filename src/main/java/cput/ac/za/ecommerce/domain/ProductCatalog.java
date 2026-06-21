@@ -35,7 +35,7 @@ public abstract class ProductCatalog {
     public double getStandardRetailPrice() { return standardRetailPrice; }
     public DimensionSpecs getPhysicalDimensions() { return physicalDimensions; }
 
-    public static class Builder {
+    public abstract static class Builder {
         private String productId;
         private String brandName;
         private String modelName;
@@ -67,10 +67,6 @@ public abstract class ProductCatalog {
             return this;
         }
 
-        public ProductCatalog build() {
-            return null;
-        }
+        public abstract ProductCatalog build();
     }
 }
-
-
