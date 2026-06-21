@@ -52,3 +52,6 @@
 * [ ] **All Tests Are Passing**
 
 ## UML Diagram
+
+<img width="1536" height="1024" alt="final uml" src="https://github.com/user-attachments/assets/eda6382a-5bf6-4091-8384-1de4554c8981" />
+
