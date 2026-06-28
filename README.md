@@ -2,6 +2,8 @@
 
 ### IncredibleTech is an e-commerce platform born right in the IT labs of CPUT District Six. We skipped the corporate middleman to bring reliable, high-quality pre-built laptops and electronics directly to everyday South Africans at a price that won't break the bank. No tech-jargon, no massive markups just great deals and fast local delivery.
 
+# E-commerce
+
 ## Group Members
 
 * **Member 1**: TIYANI NGWANA 231266731 - Payment Entity
