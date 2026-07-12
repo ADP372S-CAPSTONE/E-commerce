@@ -6,6 +6,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+/*FeedbackController.java
+    Controller for Feedback entity
+    Author: Abulele Ntwanambi(218276400)
+    Date: 12 July 2026 */
 
 @RestController
 @RequestMapping("/api/feedback")

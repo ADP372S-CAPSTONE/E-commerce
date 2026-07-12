@@ -18,6 +18,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
+/*FeedbackServiceTest.java
+    Test class for FeedbackService
+    Author: Abulele Ntwanambi(218276400)
+    Date: 12 July 2026 */
 
 @ExtendWith(MockitoExtension.class)
 public class FeedbackServiceTest {

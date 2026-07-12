@@ -10,6 +10,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+/*FeedbackService.java
+    Service for Feedback entity
+    Author: Abulele Ntwanambi(218276400)
+    Date: 12 July 2026 */
 
 @Service
 public class FeedbackService implements IFeedback {
