@@ -1,9 +1,8 @@
 /*
    PaymentServiceImpl
    Ngwana Tiyani (231266731)
-   Date: 19 June 2026
+   Date: 07 July 2026
  */
-
 
 package cput.ac.za.ecommerce.service.impl;
 
@@ -15,49 +14,89 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+
 @Service
 public class PaymentServiceImpl implements IPaymentService {
 
-
     private final PaymentRepository repository;
+
+
+    private static PaymentServiceImpl service = null;
 
     @Autowired
     public PaymentServiceImpl(PaymentRepository repository) {
         this.repository = repository;
+        service = this;
+    }
+
+
+    public static PaymentServiceImpl getService() {
+        return service;
     }
 
     @Override
     public Payment savePayment(Payment payment) {
+
+
         if (payment == null) {
-            throw new NullPointerException("payment is null");
+            return null;
         }
+
         return repository.save(payment);
     }
 
     @Override
     public Payment getPaymentById(String paymentId) {
+
+        /*
+           Prevents searching with null or blank IDs.
+
+           If this validation is removed:
+           - Invalid database queries may be made.
+           - Unnecessary repository calls happen.
+         */
+        if (isNullOrEmpty(paymentId)) {
+            return null;
+        }
+
         return repository.findById(paymentId).orElse(null);
     }
 
     @Override
     public List<Payment> getAllPayments() {
+
         return repository.findAll();
     }
 
     @Override
     public Payment updatePayment(Payment payment) {
-        if (payment == null || !repository.existsById(payment.getTransactionId())) {
-            throw new IllegalArgumentException("Payment does not exist or is null");
-        }
-        return repository.save(payment);
 
+        if (payment == null || isNullOrEmpty(payment.getTransactionId())) {
+            return null;
+        }
+
+        /*
+           Checks whether the payment already exists before updating.
+         */
+
+        if (!repository.existsById(payment.getTransactionId())) {
+            return null;
+        }
+
+        return repository.save(payment);
     }
 
     @Override
     public void deletePayment(String paymentId) {
-        if (repository.existsById(paymentId)) {
+
+        if (!isNullOrEmpty(paymentId) && repository.existsById(paymentId)) {
             repository.deleteById(paymentId);
         }
+    }
 
+    private boolean isNullOrEmpty(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }
+
+//End of program
