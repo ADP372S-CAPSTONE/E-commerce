@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
+@Table(name = "customer_order")
 public class Order {
         @Id
         private UUID orderId;

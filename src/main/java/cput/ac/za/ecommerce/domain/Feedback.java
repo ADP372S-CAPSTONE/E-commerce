@@ -10,12 +10,10 @@ import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
+
 
 @Entity
 @Table(name = "feedback")
-@DiscriminatorColumn(name = "feedback_type")
 @Inheritance(strategy = InheritanceType.JOINED)
 public abstract class Feedback {
 
