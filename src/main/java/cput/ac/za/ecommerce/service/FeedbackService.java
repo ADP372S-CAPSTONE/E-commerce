@@ -18,8 +18,10 @@ import java.util.List;
 @Service
 public class FeedbackService implements IFeedback {
 
-    @Autowired
-    private FeedbackRepository feedbackRepository;
+    private final FeedbackRepository feedbackRepository;
+    public FeedbackService(FeedbackRepository feedbackRepository) {
+        this.feedbackRepository = feedbackRepository;
+    }
 
     @Override
     public Feedback create(Feedback feedback) {

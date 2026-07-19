@@ -15,8 +15,10 @@ import java.util.List;
 @RequestMapping("/api/feedback")
 public class FeedbackController {
 
-    @Autowired
-    private FeedbackService feedbackService;
+    private final FeedbackService feedbackService;
+    public FeedbackController(FeedbackService feedbackService) {
+        this.feedbackService = feedbackService;
+    }
 
     @PostMapping
     public Feedback create(@RequestBody Feedback feedback) {
@@ -30,7 +32,7 @@ public class FeedbackController {
     public List<Feedback> getAll() {
         return feedbackService.getAll();
     }
-    @PostMapping
+    @PutMapping
     public Feedback update(@RequestBody Feedback feedback) {
         return feedbackService.update(feedback);
     }
