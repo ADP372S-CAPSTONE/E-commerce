@@ -1,6 +1,6 @@
 // PaymentServiceImplTest.java
 // Ngwana Tiyani 231266731
-// 28 June 2026
+// 07 July 2026
 
 package cput.ac.za.ecommerce;
 
@@ -31,7 +31,7 @@ public class PaymentServiceImplTest {
     private PaymentRepository repository; // Mocks the database operations layer
 
     @InjectMocks
-    private PaymentServiceImpl service;   // Automatically injects the mocked repository into your service
+    private PaymentServiceImpl service; 
 
     private CardPayment samplePayment;
 

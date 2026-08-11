@@ -1,17 +1,22 @@
-/* ProductCatalog.java
+/*
+   ProductCatalog.java
    Abstract base class for Product Catalog Service
    Author: Nomhle Njengele (216227488)
-   Date: 21 June 2026 */
+   Date: 21 June 2026
+ */
 
 package cput.ac.za.ecommerce.domain;
 
 import jakarta.persistence.*;
 
-@MappedSuperclass
+@Entity
+@Table(name = "product_catalog")
+@Inheritance(strategy = InheritanceType.JOINED)
 public abstract class ProductCatalog {
 
     @Id
     private String productId;
+
     private String brandName;
     private String modelName;
     private double standardRetailPrice;
@@ -27,13 +32,28 @@ public abstract class ProductCatalog {
         this.physicalDimensions = builder.physicalDimensions;
     }
 
-    protected ProductCatalog() {}
+    protected ProductCatalog() {
+    }
 
-    public String getProductId() { return productId; }
-    public String getBrandName() { return brandName; }
-    public String getModelName() { return modelName; }
-    public double getStandardRetailPrice() { return standardRetailPrice; }
-    public DimensionSpecs getPhysicalDimensions() { return physicalDimensions; }
+    public String getProductId() {
+        return productId;
+    }
+
+    public String getBrandName() {
+        return brandName;
+    }
+
+    public String getModelName() {
+        return modelName;
+    }
+
+    public double getStandardRetailPrice() {
+        return standardRetailPrice;
+    }
+
+    public DimensionSpecs getPhysicalDimensions() {
+        return physicalDimensions;
+    }
 
     public abstract static class Builder {
         private String productId;
