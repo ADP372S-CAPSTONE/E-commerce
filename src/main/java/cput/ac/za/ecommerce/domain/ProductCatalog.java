@@ -10,6 +10,7 @@ package cput.ac.za.ecommerce.domain;
 import jakarta.persistence.*;
 
 @Entity
+@Table(name = "product_catalog")
 @Inheritance(strategy = InheritanceType.JOINED)
 public abstract class ProductCatalog {
 
