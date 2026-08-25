@@ -1,14 +1,15 @@
 ### SEED CUSTOMER
 POST http://localhost:8081/api/users/register
+
 Content-Type: application/json
 
 {
-  "firstName": "Tiyani",
-  "lastName": "Baloyi",
-  "email": "tiyani@gmail.com",
-  "phoneNumber": "0711073494",
-  "password": "Password@12345",
-  "confirmPassword": "Password@12345"
+  "firstName": "Nomhle",
+  "lastName": "Njengele",
+  "email": "nomhlenjengele@gmail.com",
+  "phoneNumber": "0797143173",
+  "password": "Password@123",
+  "confirmPassword": "Password@123"
 }
 
 ### LOGIN — CUSTOMER
@@ -16,8 +17,8 @@ POST http://localhost:8081/api/auth/login
 Content-Type: application/json
 
 {
-  "email": "tiyani@gmail.com",
-  "password": "Password@12345"
+  "email": "nomhlenjengele@gmail.com",
+  "password": "Password@123"
 }
 
 ### REGISTER ADMIN AS A USER THEN PROMOTE TO ADMIN ON MYSQL DATABASE
