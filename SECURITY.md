@@ -1,462 +1,250 @@
-# Security Setup & Seeding Guide
+# Security Implementation Guide
 
-This guide explains how to configure and use authentication and authorization in this application, then seed the application end to end with the IntelliJ HTTP Client files in [`SEEDING DATA`](./SEEDING%20DATA/).
+This document explains how authentication and authorization work in the E-Commerce application: how JWT tokens are issued, how users and admins are created, how data is stored and retrieved, and how every piece connects to make security work end to end.
 
-The backend runs at `http://localhost:8081`, as configured by `server.port=8081`.
+The stack is a **Spring Boot** backend (Spring Security OAuth2 Resource Server + JWT) with a **MySQL** database, and a **React (Vite)** frontend that stores the token and attaches it to every request.
 
-## 1. Security configuration
+---
 
-The JWT settings in `src/main/resources/application.properties` are:
+## 1. High-Level Overview
 
-```properties
-security.jwt.secret=${ECOMMERCE_JWT_SECRET}
-security.jwt.issuer=e-commerce-api
-security.jwt.expiration-seconds=3600
+```
+                         ┌──────────────────────────────────────────────┐
+   React frontend        │                Spring Boot API               │
+ ┌───────────────┐       │                                              │
+ │ Login form    │──POST /api/auth/login──▶ AuthController ──▶ AuthService│
+ │               │◀─────── JWT token ──────                             │
+ │ localStorage  │       │                                              │
+ │ 'incredible-  │       │  Every later request carries:                │
+ │  tech.auth'   │──────▶│  Authorization: Bearer <token>               │
+ └───────────────┘       │        │                                     │
+                         │        ▼                                     │
+                         │  SecurityFilterChain (JWT decoder/validator) │
+                         │        │                                     │
+                         │        ▼                                     │
+                         │  Controller + @PreAuthorize role checks      │
+                         │        │                                     │
+                         │        ▼                                     │
+                         │  JPA Repositories ──▶ MySQL (users, roles)   │
+                         └──────────────────────────────────────────────┘
 ```
 
-`ECOMMERCE_JWT_SECRET` is an environment variable. The signing secret is therefore supplied at runtime instead of being stored in source control. Because there is no default value, the application cannot create its JWT encoder and decoder when the variable is missing or invalid.
+The API is **stateless**: there are no server-side sessions. The JWT itself carries the user's identity (email) and role, and is verified on every request using a shared secret.
 
-> The issuer is exactly `e-commerce-api`. A token with a different issuer fails validation.
+---
 
-## 2. Why the JWT secret is required
+## 2. Core Security Components (Backend)
 
-The application signs tokens with HMAC-SHA256 (`HS256`). This is a symmetric algorithm: the same secret signs tokens during login and verifies Bearer tokens on later requests.
+| Concern | Class / File | Responsibility |
+|---|---|---|
+| Filter chain & route rules | `config/SecurityConfig.java` | Which endpoints are public vs. protected, role rules, stateless sessions, CORS/CSRF |
+| JWT encode/decode keys | `config/JwtConfig.java` | Builds the `JwtEncoder` and `JwtDecoder` from a shared secret |
+| Password hashing | `config/PasswordEncoderConfig.java` | Provides the `BCryptPasswordEncoder` bean |
+| Login + token issue | `controller/AuthController.java` + `service/impl/AuthServiceImpl.java` | Validates credentials and issues the JWT |
+| Register / profile / admin actions | `controller/UserManagementController.java` + `service/impl/UserManagementServiceImpl.java` | Creates customers, reads/updates the logged-in user, admin activate/deactivate |
+| Identity model | `domain/User.java`, `Customer.java`, `Administrator.java`, `AccountProfile.java`, `UserRole.java` | The stored user records and their role |
+| Persistence | `repository/UserManagementRepository.java` | Saves and looks up users in MySQL |
 
-`JwtConfig.createSecretKey(...)` applies these startup rules:
+---
 
-| Rule | Reason |
-|---|---|
-| The environment value must be valid standard Base64 | `Base64.getDecoder()` converts it into key bytes. |
-| The decoded value must contain at least 32 bytes | HS256 requires a key at least as large as its 256-bit output. |
+## 3. How the JWT Token Works
 
-A plain password such as `mysecret` is not suitable. Generate 48 cryptographically random bytes and Base64-encode them. This produces a 64-character Base64 value before optional padding and exceeds the minimum requirement.
-## 3. Generate and set the secret
+### 3.1 The signing key (`JwtConfig.java`)
 
-Generate a new secret for each environment. Do not reuse the example output from documentation or commit a real secret.
+The application uses **symmetric HMAC signing (HS256)** — the same secret both signs and verifies the token.
 
-### Windows PowerShell
+- The secret is read from the property `security.jwt.secret`, which in `application.properties` comes from the environment variable **`ECOMMERCE_JWT_SECRET`**.
+- `createSecretKey(...)` Base64-decodes it and enforces **at least 32 bytes** (256 bits). If the secret is missing, not valid Base64, or too short, the app fails to start. This prevents weak keys.
+- Two beans are produced:
+  - `JwtEncoder` (`NimbusJwtEncoder` with an `ImmutableSecret`) — used to **create/sign** tokens at login.
+  - `JwtDecoder` (`NimbusJwtDecoder` with `MacAlgorithm.HS256`) — used to **verify** tokens on every request. It also validates the **issuer** (`security.jwt.issuer` = `ecommerce-api`) and standard claims like expiry.
 
-Run these commands in the same PowerShell window that will start the backend:
+### 3.2 Issuing a token at login (`AuthServiceImpl.generateToken`)
 
-```powershell
-$bytes = New-Object 'System.Byte[]' 48
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-try {
-    $rng.GetBytes($bytes)
-} finally {
-    $rng.Dispose()
-}
-$env:ECOMMERCE_JWT_SECRET = [System.Convert]::ToBase64String($bytes)
-$env:ECOMMERCE_JWT_SECRET
-.\mvnw.cmd spring-boot:run
+When login succeeds, a JWT is built with these claims:
+
+| Claim | Value | Purpose |
+|---|---|---|
+| `iss` (issuer) | `ecommerce-api` | Verified by the decoder so foreign tokens are rejected |
+| `iat` (issued at) | now | Token age |
+| `exp` (expires at) | now + `expiration-seconds` (3600 = **1 hour**) | Token lifetime |
+| `sub` (subject) | user's email | Identifies the principal; later read as `authentication.getName()` |
+| `roles` | e.g. `["CUSTOMER"]` or `["ADMINISTRATOR"]` | Drives authorization |
+| `userId` | e.g. `USR-AB9107E7EC4A` | Convenience identifier |
+
+The token is signed with the secret and returned as a string.
+
+### 3.3 Verifying a token on later requests
+
+`SecurityConfig` registers the API as an **OAuth2 Resource Server**:
+
+```java
+.oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->
+        jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
 ```
 
-The environment assignment applies to the current PowerShell process and programs started from it. Opening a new terminal requires setting it again.
+For each incoming request that has `Authorization: Bearer <token>`:
+1. The `JwtDecoder` verifies the signature, the issuer, and the expiry.
+2. The `JwtAuthenticationConverter` reads the **`roles`** claim and turns each value into a Spring authority with the **`ROLE_`** prefix (so `ADMINISTRATOR` becomes `ROLE_ADMINISTRATOR`). This is what makes `hasRole('ADMINISTRATOR')` work.
+3. The email (`sub`) becomes the authenticated principal name, available in controllers as the `Authentication` parameter.
 
-### Windows Command Prompt
+---
 
-From `cmd.exe`, use PowerShell only as the cryptographically secure generator and assign its output to the current Command Prompt session:
+## 4. Authorization Rules
 
-```bat
-for /f "delims=" %S in ('powershell -NoProfile -Command "$b=New-Object byte[] 48;[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b);[Convert]::ToBase64String($b)"') do @set "ECOMMERCE_JWT_SECRET=%S"
-mvnw.cmd spring-boot:run
+### 4.1 URL-level rules (`SecurityConfig.securityFilterChain`)
+
+The chain is stateless (`SessionCreationPolicy.STATELESS`), CSRF is disabled (safe here because there are no cookies/sessions — the token is sent explicitly), and CORS is enabled via a `CorsConfigurationSource`.
+
+Public (no token required):
+- `OPTIONS /**` (CORS preflight)
+- `/error`
+- `/api/auth/**` (login)
+- `POST /api/users/register` (customer sign-up)
+- `GET /api/productcatalog/**` (browse products)
+- `GET /api/feedback/product/**` (read product reviews)
+
+Restricted:
+- Any non-GET `/api/productcatalog/**` (create/update/delete products) → **`ADMINISTRATOR`** only
+- **Everything else** → any authenticated user
+
+### 4.2 Method-level rules (`@EnableMethodSecurity` + `@PreAuthorize`)
+
+`@EnableMethodSecurity` on `SecurityConfig` turns on annotation checks. Controllers then guard admin-only actions directly, for example:
+
+```java
+@PreAuthorize("hasRole('ADMINISTRATOR')")
+@GetMapping   // list all users
 ```
 
-When placing the command in a `.bat` file, replace `%S` with `%%S`.
+This pattern appears across `UserManagementController`, `OrderController`, `PaymentController`, `DeliveryController`, and `FeedbackController` (update/delete). Regular authenticated endpoints (like `GET /api/users/me`) rely on the injected `Authentication` to know *who* is calling and act only on that user's own data.
 
-### OpenSSL
+---
 
-Generate a value:
+## 5. How Users Are Created
 
-```shell
-openssl rand -base64 48
-```
+### 5.1 Customers (self-service registration)
 
-Copy the output, then set it before starting the application:
+Flow: `POST /api/users/register` → `UserManagementController.registerCustomer` → `UserManagementServiceImpl.registerCustomer`:
 
-```powershell
-$env:ECOMMERCE_JWT_SECRET = "PASTE_GENERATED_VALUE_HERE"
-.\mvnw.cmd spring-boot:run
-```
+1. Normalizes email and phone (`ValidationPatterns`).
+2. Confirms `password` matches `confirmPassword`.
+3. Rejects duplicate email or phone (`existsByEmailIgnoreCase`, `existsByPhoneNumber`).
+4. **Hashes the password** with `passwordEncoder.encode(...)` (BCrypt) — the raw password is never stored.
+5. `UserManagementFactory.createCustomer(...)` builds a `Customer` with a generated `userId` (`USR-...`) and `customerNumber` (`CUST-...`).
+6. `userRepository.save(customer)` persists it.
 
-OpenSSL can also be assigned directly in PowerShell:
+The result is always a `Customer` (role `CUSTOMER`). **There is no endpoint that creates an administrator** — this is intentional so the public cannot self-promote.
 
-```powershell
-$env:ECOMMERCE_JWT_SECRET = (openssl rand -base64 48)
-.\mvnw.cmd spring-boot:run
-```
+### 5.2 Administrators (created manually)
 
-### Node.js
+The role is not a column you flip; it is determined by **which entity subclass** the record is. `User` uses JPA **JOINED inheritance**:
 
-Generate a value:
+- `Customer` → `getRole()` returns `CUSTOMER`, stored in the `customer` table.
+- `Administrator` → `getRole()` returns `ADMINISTRATOR`, stored in the `administrator` table.
 
-```shell
-node -e "console.log(require('node:crypto').randomBytes(48).toString('base64'))"
-```
+Because there is no admin-registration code or SQL seed file in the project, an administrator must be inserted directly into the database: a row in the base `app_user` table plus a matching row in the `administrator` table (with `employee_number` and `department`). The password stored there must be a **BCrypt hash** so `passwordEncoder.matches(...)` works at login. Once that record exists, logging in with its email returns a token whose `roles` claim is `["ADMINISTRATOR"]`.
 
-Or generate, assign, and start from PowerShell:
+> Note: `spring.jpa.hibernate.ddl-auto=update` means Hibernate creates/updates these tables automatically on startup — there is no `data.sql` seeding an admin.
 
-```powershell
-$env:ECOMMERCE_JWT_SECRET = (node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64'))")
-.\mvnw.cmd spring-boot:run
-```
+---
 
-### What happens at startup
+## 6. How Login Works (end to end)
 
-1. Spring resolves `${ECOMMERCE_JWT_SECRET}`.
-2. `JwtConfig` Base64-decodes the value.
-3. Startup stops if decoding fails or produces fewer than 32 bytes.
-4. The decoded bytes become an `HmacSHA256` `SecretKey`.
-5. `NimbusJwtEncoder` uses the key to issue HS256 tokens.
-6. `NimbusJwtDecoder` uses the same key to verify HS256 signatures.
-7. The decoder also validates token timestamps and requires issuer `e-commerce-api`.
+`POST /api/auth/login` → `AuthController.login` → `AuthServiceImpl.login`:
 
-Example shape only—generate your own value:
-
-```text
-<64-character Base64 value generated from 48 random bytes>
-```
-
-## 4. Authentication at runtime
-
-### Password handling
-
-`PasswordEncoderConfig` provides Spring Security's `BCryptPasswordEncoder`.
-
-- Registration hashes the submitted password before storing it.
-- Login compares the submitted password with the stored BCrypt hash by calling `PasswordEncoder.matches(...)`.
-- The API never needs to decrypt a password.
-- `User.passwordHash` is annotated with `@JsonIgnore`, so it is excluded from normal JSON serialization.
-
-### Login and token creation
-
-Login is public:
-
-```http
-POST http://localhost:8081/api/auth/login
-Content-Type: application/json
-
-{
-  "email": "tiyani@gmail.com",
-  "password": "Password@12345"
-}
-```
-
-A successful response has these fields:
+1. Look up the user by email (case-insensitive) via `findByEmailIgnoreCase`. Not found → generic "Invalid email or password".
+2. Reject if the account is inactive (`!user.isActive()`).
+3. Compare the submitted password against the stored BCrypt hash with `passwordEncoder.matches(...)`. Mismatch → same generic error (so attackers can't tell which part failed).
+4. Build and sign the JWT (`generateToken`).
+5. Return an `AuthResponse`:
 
 ```json
 {
-  "token": "eyJ...",
+  "token": "<jwt>",
   "type": "Bearer",
-  "userId": "USR-...",
-  "email": "tiyani@gmail.com",
+  "userId": "USR-AB9107E7EC4A",
+  "email": "user@example.com",
   "role": "CUSTOMER"
 }
 ```
 
-`AuthServiceImpl` puts the following claims in the token:
+---
 
-| Claim | Application value |
+## 7. How Data Is Stored and Retrieved
+
+### 7.1 Storage model
+
+- `User` (`@Entity`, abstract, `@Table("app_user")`, `@Inheritance(JOINED)`) holds shared fields: `userId` (PK), embedded `AccountProfile` (first/last name, email, phone), `passwordHash`, `active`, `createdAt`.
+- `passwordHash` is annotated `@JsonIgnore`, so it is **never serialized** into any API response.
+- `AccountProfile` is an `@Embeddable`, so its columns live inside the user tables (not a separate table).
+- Passwords are stored only as **BCrypt hashes** (BCrypt includes a per-password salt automatically).
+
+### 7.2 Retrieval
+
+`UserManagementRepository extends JpaRepository<User, String>` with JPQL queries:
+- `findByEmailIgnoreCase` — used by both login and profile lookups.
+- `findCustomerByEmailIgnoreCase`, `existsByEmailIgnoreCase`, `existsByPhoneNumber` — for registration checks.
+
+For "who am I" endpoints (`/api/users/me`), the controller reads the email from the verified JWT (`authentication.getName()`), then loads that user — a user can only read/update **their own** record this way.
+
+### 7.3 Database configuration (`application.properties`)
+
+- MySQL at `jdbc:mysql://localhost:3306/ecommerce`, with credentials supplied through `ECOMMERCE_DB_USERNAME` (default `root`) and the required `ECOMMERCE_DB_PASSWORD`; server port `8081`.
+- `security.jwt.secret=${ECOMMERCE_JWT_SECRET}`, issuer `ecommerce-api`, expiry `3600s`.
+
+---
+
+## 8. Frontend Side of Security
+
+| File | Role |
 |---|---|
-| `iss` | `e-commerce-api` |
-| `iat` | Time of login |
-| `exp` | Login time plus 3,600 seconds |
-| `sub` | User email address |
-| `roles` | A one-item array containing `CUSTOMER` or `ADMINISTRATOR` |
-| `userId` | The application's user ID |
+| `services/api/apiClient.js` | Central fetch wrapper. Reads the saved session from `localStorage` key **`incredibletech.auth`**, adds `Authorization: Bearer <token>` to requests, and on a `401` dispatches an `auth:expired` event. |
+| `services/auth/authService.js` | Thin wrappers: `login` → `/auth/login`, `register` → `/users/register`, `profile` → `/users/me`, etc. |
+| `state/auth/AuthProvider.jsx` | Holds the session in React context. `login()` saves the token to `localStorage`; `isAdmin` is computed as `session?.role === 'ADMINISTRATOR'`. Listens for `auth:expired` and logs out. |
+| `hooks/auth/useAuth.js` | Hook to read the auth context anywhere. |
+| `components/protected-route/ProtectedRoute.jsx` | Route guard: no session → redirect to `/login`; `admin` route without admin role → redirect to `/`. |
 
-The JWT header specifies `alg=HS256` and `typ=JWT`.
+Note: the frontend's `isAdmin` guard is only for **UX** (hiding buttons/routes). Real enforcement always happens on the backend via the JWT `roles` claim and `@PreAuthorize`.
 
-### Bearer-token verification
+---
 
-The application uses Spring Security's OAuth2 Resource Server support rather than a custom JWT filter. Send the login token on protected requests:
+## 9. IntelliJ HTTP Client Collection
 
-```http
-Authorization: Bearer {{customerToken}}
-```
+The request collection is organized under [`http/`](http/README.md):
 
-The configured `JwtAuthenticationConverter` reads the `roles` claim and adds the `ROLE_` prefix. The resulting authorities are:
+- `http/auth.http` registers a sample customer and captures separate customer and administrator login tokens from `response.body.token`.
+- `http/cart.http` calls the authenticated customer's current cart.
+- `http/catalog/catalog.http` contains controller-verified catalog examples and uses an administrator token for product creation.
+- `http/catalog/seed/*.http` contains the category seed payloads.
 
-- `CUSTOMER` becomes `ROLE_CUSTOMER`.
-- `ADMINISTRATOR` becomes `ROLE_ADMINISTRATOR`.
+Select the `local` environment from `http-client.env.json`, copy `http-client.private.env.example.json` to the ignored `http-client.private.env.json`, and add local credentials there. Run `http/auth.http` before protected requests; no JWTs are committed.
 
-This is why application checks use `hasRole('ADMINISTRATOR')`, while the token itself contains `ADMINISTRATOR`.
+---
 
-### Token lifetime and sessions
+## 10. How It All Connects (request lifecycle)
 
-The API is stateless:
+1. **Register** — `POST /api/users/register` creates a `Customer` with a BCrypt-hashed password in MySQL.
+2. **Login** — `POST /api/auth/login` verifies the hash and returns a signed JWT containing the email and role.
+3. **Store** — the React app saves the token in `localStorage` (`incredibletech.auth`).
+4. **Call** — every subsequent request attaches `Authorization: Bearer <token>`.
+5. **Verify** — the `SecurityFilterChain` decodes the token (signature + issuer + expiry) and converts `roles` into `ROLE_*` authorities.
+6. **Authorize** — URL rules and `@PreAuthorize` decide if the caller may proceed; the email principal scopes "me" endpoints to the caller's own data.
+7. **Persist/Read** — JPA repositories read and write the user/domain records in MySQL.
+8. **Expire** — after 1 hour the token is rejected; a `401` triggers `auth:expired`, which logs the user out on the frontend.
 
-- `SessionCreationPolicy.STATELESS` prevents authentication from being stored in an HTTP session.
-- Every protected request must include its Bearer token.
-- Tokens expire after one hour.
-- The application does not currently issue refresh tokens or keep a token-revocation store.
-- Log in again after expiration to obtain a new token.
-- A role change does not modify an already-issued token; log in again after changing a user subtype.
+---
 
-## 5. Authorization rules
+## 11. Security Notes & Recommendations
 
-`SecurityConfig` enables both URL rules and method-level security with `@EnableMethodSecurity`.
+These are observations about the current setup, not bugs to fix unless you want to:
 
-### Public requests
+- **DB credentials are environment-backed** in `application.properties`: `ECOMMERCE_DB_USERNAME` may default to `root`, while `ECOMMERCE_DB_PASSWORD` is required and has no committed default.
+- **Token stored in `localStorage`** is readable by JavaScript, so it is exposed to XSS. It is a common tradeoff for SPA + stateless JWT; mitigate with strong output escaping / CSP, or consider httpOnly cookies if you later add CSRF protection.
+- **No refresh-token flow** — when the 1-hour token expires the user must log in again.
+- **Roles are trusted from the token** and not re-checked against the DB per request. That is standard for stateless JWT, but it means a role change only takes effect after the user gets a new token (re-login).
+- **Admin creation is manual** (direct DB insert). If you want a safer path, add a one-time seeding routine or an admin-only "promote user" endpoint rather than editing the database by hand.
 
-These requests do not require a token:
+## Legacy collaborator seed collection
 
-- CORS preflight requests: `OPTIONS /**`
-- Error handling: `/error`
-- Authentication: `/api/auth/**`
-- Customer registration: `POST /api/users/register`
-- Catalogue reads: `GET /api/productcatalog/**`
-- Product-review reads: `GET /api/feedback/product/**`
-
-### Administrator requests
-
-All non-GET catalogue operations under `/api/productcatalog/**` require `ADMINISTRATOR`. Method-level rules also protect administration operations such as:
-
-- Listing, activating, and deactivating users
-- Listing all orders and changing order status
-- Listing all payments and issuing refunds
-- Creating, listing, changing, deleting, and tracking deliveries
-- Updating or deleting feedback
-
-### Other authenticated requests
-
-Every route not matched above requires a valid JWT. Customer-facing services additionally enforce domain rules such as ownership of a cart, order, or payment.
-
-The URL configuration does not apply a blanket `CUSTOMER` role to every customer-facing endpoint. In practice, use:
-
-- The customer token for cart, checkout, customer payment, and feedback requests.
-- The administrator token for catalogue management, delivery management, and administrative operations.
-
-Expected security responses:
-
-- `401 Unauthorized`: the token is missing, malformed, expired, signed with another secret, or has the wrong issuer.
-- `403 Forbidden`: the token is valid, but its role is not allowed to perform the operation.
-
-CSRF is disabled because this is a stateless Bearer-token API. CORS is enabled through the application's `CorsConfigurationSource`.
-
-## 6. Customer and administrator roles
-
-The role is derived from the concrete JPA subtype:
-
-- A row in `customer` represents a `Customer` and returns `UserRole.CUSTOMER`.
-- A row in `administrator` represents an `Administrator` and returns `UserRole.ADMINISTRATOR`.
-- Both subtypes share their base account data through `app_user` using joined inheritance.
-
-There is no public administrator-registration endpoint and no mutable role column. `POST /api/users/register` always creates a `Customer`.
-
-### Local seeding: convert the registered admin candidate
-
-Run the administrator registration request in `User_and_Admin_seeding.http`. Before that account has customer-owned application data, convert its subtype in MySQL:
-
-```sql
-START TRANSACTION;
-
-SET @admin_user_id = (
-    SELECT user_id
-    FROM app_user
-    WHERE email = 'admin@incredibletech.co.za'
-);
-
-DELETE FROM customer
-WHERE user_id = @admin_user_id;
-
-INSERT INTO administrator
-    (user_id, employee_number, department)
-VALUES
-    (@admin_user_id, 'EMP-0001', 'Operations');
-
-COMMIT;
-```
-
-Do not leave the same user ID in both subtype tables. This conversion is intended only for controlled local seeding. A production application should use a dedicated, audited administrator-provisioning process.
-
-After conversion, run the administrator login request. The new token must return:
-
-```json
-{
-  "type": "Bearer",
-  "email": "admin@incredibletech.co.za",
-  "role": "ADMINISTRATOR"
-}
-```
-
-Always log in after promotion. A token issued before promotion still contains the old `CUSTOMER` claim until it expires.
-
-## 7. IntelliJ HTTP Client conventions
-
-The `.http` files use IntelliJ HTTP Client variables:
-
-```http
-@customerToken = PASTE_CUSTOMER_JWT_HERE
-@productId = PASTE_CREATED_PRODUCT_ID_HERE
-```
-
-A variable is referenced with double braces:
-
-```http
-Authorization: Bearer {{customerToken}}
-
-{
-  "productId": "{{productId}}"
-}
-```
-
-Do not commit real JWTs. Leave placeholders in version-controlled files and paste short-lived development tokens only into your local working copy.
-
-## 8. End-to-end seeding order
-
-Keep the backend running on port `8081`, then execute the requests in the following order.
-
-### Step 1: Register and log in the customer
-
-Open `SEEDING DATA/User_and_Admin_seeding.http` and run:
-
-1. `SEED CUSTOMER`
-2. `LOGIN — CUSTOMER`
-
-Copy the response's `token` value. Paste it into each required `@customerToken` placeholder without adding the word `Bearer`; the request header already adds it.
-
-### Step 2: Register and convert the administrator
-
-In the same file:
-
-1. Run the administrator-candidate registration request.
-2. Perform the MySQL subtype conversion shown above.
-3. Run `LOGIN — ADMIN`.
-4. Confirm that the response role is `ADMINISTRATOR`.
-5. Copy the response's `token` into each `@adminToken` placeholder.
-
-### Step 3: Seed products
-
-Open `SEEDING DATA/product_seeding.http`:
-
-```http
-@adminToken = PASTE_ADMIN_JWT_HERE
-```
-
-The file creates products with authenticated `POST /api/productcatalog` requests. Catalogue creation requires the administrator role. Prices are numeric South African rand amounts; for example, `23999.00` represents `R23,999.00`.
-
-The API generates each product ID. Save at least one returned `PRD-*` value for cart, order, and feedback seeding.
-
-### Step 4: Create a pending order
-
-Open `SEEDING DATA/order_seeding.http` and set:
-
-```http
-@customerToken = PASTE_CUSTOMER_JWT_HERE
-@productId = PASTE_CREATED_PRODUCT_ID_HERE
-```
-
-Run the requests in order:
-
-1. `POST /api/cart/items` adds an available product to the authenticated customer's active cart.
-2. `POST /api/orders/checkout` converts the cart contents into an order with status `PENDING_PAYMENT`.
-
-Copy the returned `ORD-*` order ID.
-
-### Step 5: Pay for the order
-
-Open `SEEDING DATA/payment_seeding.http` and set the customer token and pending order ID.
-
-A successful payment:
-
-1. Validates that the authenticated customer owns the order.
-2. Requires order status `PENDING_PAYMENT`.
-3. Checks and deducts product stock.
-4. Marks the payment `SUCCESSFUL`.
-5. Marks the order `PAID`.
-6. Marks the source cart `CHECKED_OUT`.
-
-The card and wallet examples require two different pending orders:
-
-```http
-@cardOrderId = PASTE_PENDING_CARD_ORDER_ID_HERE
-@walletOrderId = PASTE_DIFFERENT_PENDING_WALLET_ORDER_ID_HERE
-```
-
-To run both examples:
-
-1. Create an order and pay it with the card request.
-2. Run `order_seeding.http` again to create a new active cart and a second pending order.
-3. Use the second order ID for the wallet request.
-
-Do not pay the same order twice. After the first successful payment, it is no longer `PENDING_PAYMENT`.
-
-### Step 6: Create and track delivery
-
-Open `SEEDING DATA/delivery_seeding.http` and set:
-
-```http
-@adminToken = PASTE_ADMIN_JWT_HERE
-@orderId = PASTE_PAID_ORDER_ID_HERE
-@deliveryId = DEL-0001
-```
-
-Run delivery creation first, followed by tracking requests in this order:
-
-1. `PREPARING` on the created delivery
-2. `DISPATCHED`
-3. `IN_TRANSIT`
-4. `OUT_FOR_DELIVERY`
-5. `DELIVERED`
-
-Delivery creation and tracking require the administrator token. Change `DEL-0001` and its tracking number before reseeding if those identifiers already exist.
-
-### Step 7: Seed feedback
-
-Open `SEEDING DATA/feedback_seeding.http` and set:
-
-```http
-@customerToken = PASTE_CUSTOMER_JWT_HERE
-@productId = PASTE_PURCHASED_PRODUCT_ID_HERE
-```
-
-Run the product-review and delivery-service-review requests. The current delivery-review request model also calls its product reference `targetProductId`, so the file intentionally supplies a `PRD-*` value for both review types.
-
-## 9. Troubleshooting
-
-### Application fails during startup
-
-- Confirm `ECOMMERCE_JWT_SECRET` is set in the same terminal that starts the backend.
-- Confirm the value is valid Base64.
-- Confirm it decodes to at least 32 bytes.
-- Regenerate the secret rather than attempting to use a normal word or password.
-
-### Login succeeds but a protected request returns 401
-
-- Copy only the `token` value from the login response.
-- Keep the header in the form `Authorization: Bearer {{tokenVariable}}`.
-- Ensure the token has not passed its one-hour expiration.
-- Ensure the backend was not restarted with a different secret after the token was issued.
-
-### Administrator request returns 403
-
-- Confirm the login response contains `"role": "ADMINISTRATOR"`.
-- Confirm the customer subtype row was removed during conversion.
-- Log in again after the database conversion and use the newly issued token.
-
-### Product creation returns 403
-
-`POST /api/productcatalog` is catalogue management and requires the administrator token. Public catalogue access applies only to `GET` requests.
-
-### Payment fails
-
-- The order must belong to the logged-in customer.
-- The order must still be `PENDING_PAYMENT`.
-- The products must have enough available stock.
-- Use separate orders for the card and wallet examples.
-
-### A seed request reports a duplicate value
-
-Registration emails, phone numbers, employee numbers, product SKUs, delivery IDs, and similar identifiers may be unique. Either clear the local seed data or change the relevant value before rerunning that request.
-
-## 10. Security practices
-
-- Never commit `ECOMMERCE_JWT_SECRET`, real JWTs, production credentials, or payment credentials.
-- Use a different secret for development, testing, staging, and production.
-- Rotate a compromised secret immediately. Existing tokens signed with the previous secret will stop validating after rotation.
-- Keep tokens out of logs and screenshots.
-- Treat the credentials in the seed files as local demonstration accounts only.
-- Externalize database credentials and other deployment secrets rather than hardcoding them in application configuration.
-- Use HTTPS outside local development so credentials and Bearer tokens are encrypted in transit.
-- Provision production administrators through an audited workflow instead of direct ad hoc database changes.
+The repository also retains the collaborator-provided `SEEDING DATA/` request collection for historical and broader end-to-end examples. New IntelliJ HTTP Client work should use the organized `http/` collection, private environment credentials, and port `8081`. Never commit generated JWTs or local database credentials. For secret generation, administrator setup, execution order, and troubleshooting, use [`SECURITY_SETUP_AND_SEEDING.md`](SECURITY_SETUP_AND_SEEDING.md).

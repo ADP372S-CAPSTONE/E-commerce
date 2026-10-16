@@ -38,15 +38,7 @@ public interface IPaymentService {
             String customerEmail
     );
 
-    Payment savePayment(Payment payment);
-
-    Payment getPaymentById(String paymentId);
-
     List<Payment> getAllPayments();
-
-    Payment updatePayment(Payment payment);
-
-    void deletePayment(String paymentId);
 
     Payment refundPayment(
             String transactionId

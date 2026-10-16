@@ -1,20 +1,5 @@
 package cput.ac.za.ecommerce.service.impl;
 
-import cput.ac.za.ecommerce.domain.Order;
-import cput.ac.za.ecommerce.repository.OrderRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.UUID;
-
-/*
- * OrderServiceImpl.java
- * Author: Sinethemba Nyimbinya (220085870)
- * Date: 2026
- */
-
-
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;

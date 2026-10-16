@@ -25,7 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
-public class PaymentServiceImpl implements IPaymentService {
+public class PaymentServiceImpl
+        implements IPaymentService {
 
     private final PaymentRepository paymentRepository;
     private final OrderRepository orderRepository;
@@ -251,29 +252,9 @@ public class PaymentServiceImpl implements IPaymentService {
     }
 
     @Override
-    public Payment savePayment(Payment payment) {
-        return null;
-    }
-
-    @Override
-    public Payment getPaymentById(String paymentId) {
-        return null;
-    }
-
-    @Override
     @Transactional(readOnly = true)
     public List<Payment> getAllPayments() {
         return paymentRepository.findAll();
-    }
-
-    @Override
-    public Payment updatePayment(Payment payment) {
-        return null;
-    }
-
-    @Override
-    public void deletePayment(String paymentId) {
-
     }
 
     @Override

@@ -1,0 +1,3 @@
+### Get the current customer's active cart
+GET {{baseUrl}}/cart
+Authorization: Bearer {{customerAuthToken}}

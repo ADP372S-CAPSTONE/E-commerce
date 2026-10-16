@@ -84,6 +84,11 @@ public enum Brand {
     ),
 
 
+    INCREDIBLE_TECH(
+            "Incredible Tech"
+    ),
+
+
     OTHER(
             "Other"
     );

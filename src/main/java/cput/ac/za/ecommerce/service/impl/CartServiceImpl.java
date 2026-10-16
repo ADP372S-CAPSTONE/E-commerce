@@ -12,14 +12,14 @@ import cput.ac.za.ecommerce.repository.ProductCatalogRepository;
 import cput.ac.za.ecommerce.repository.UserManagementRepository;
 import cput.ac.za.ecommerce.request.AddCartItemRequest;
 import cput.ac.za.ecommerce.request.UpdateCartItemRequest;
-import cput.ac.za.ecommerce.response.CartResponse;
 import cput.ac.za.ecommerce.service.ICartService;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class CartServiceImpl implements ICartService {
+public class CartServiceImpl
+        implements ICartService {
 
     private final CartRepository cartRepository;
 
@@ -57,11 +57,6 @@ public class CartServiceImpl implements ICartService {
                                 normalizedEmail
                         )
                 );
-    }
-
-    @Override
-    public CartResponse updateItem(String customerId, String itemId, UpdateCartItemRequest request) {
-        return null;
     }
 
     @Override
@@ -214,11 +209,6 @@ public class CartServiceImpl implements ICartService {
         cart.clearItems();
 
         return cartRepository.save(cart);
-    }
-
-    @Override
-    public CartResponse markCheckedOut(String customerId) {
-        return null;
     }
 
     private Cart getActiveCartForUpdate(

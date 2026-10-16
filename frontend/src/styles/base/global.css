@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+:root { font-family: 'DM Sans', system-ui, sans-serif; color: #151b25; background: #f5f5e9; font-synthesis: none;
+  /* ---- Brand palette --------------------------------------------------
+     A four-tone enterprise system:
+       Black      #151b25  deep ink / primary surfaces
+       Cornflower #143344  deep teal, pairs with black in gradients
+       Cream      #f5f5e9  warm paper, the page canvas
+       Orange     #ff9010  the logo accent, used sparingly
+     Legacy token names (navy/orange) are kept so nothing downstream breaks;
+     they now map onto the palette above. */
+  --brand-black:#151b25; --brand-cornflower:#143344; --brand-cream:#f5f5e9;
+  /* Accent orange, sampled from the brand logo. --brand-accent aliases it. */
+  --brand-accent:#ff9010; --brand-accent-light:#ffa733; --brand-accent-dark:#e07a00;
+  --brand-gradient:linear-gradient(135deg, #151b25 0%, #143344 100%);
+  /* Sunflower gold: the resting tint for bento hero media before hover. */
+  --brand-sunflower:#f6b31e;
+  /* Dark-surface ramp (black leaning slightly toward cornflower as it lightens). */
+  --navy-950:#10141c; --navy-900:#151b25; --navy-800:#1d2a38;
+  /* Accent is the logo orange. "dark" variant keeps AA contrast on the cream canvas. */
+  --orange:#ff9010; --orange-dark:#c96a00; --orange-soft:rgba(255,144,16,.10);
+  --ink:#151b25; --muted:#5b6472; --line:#e3e2d3; --line-strong:#d2d0bd;
+  --paper:#f5f5e9; --surface:#efeee1; --surface-sunken:#e7e6d6; --card:#fffdf7;
+  --success:#137a4c; --danger:#b42525; --radius:12px;
+  /* ---- Liquid glass ---------------------------------------------------
+     Frosted, translucent surfaces in the Apple visionOS idiom. Light glass
+     sits on the cream canvas, dark glass on brand surfaces. */
+  --glass-blur:saturate(180%) blur(20px);
+  --glass-light:rgba(255,255,255,.62); --glass-light-strong:rgba(255,255,255,.78);
+  --glass-light-border:rgba(255,255,255,.6);
+  --glass-dark:rgba(21,27,37,.62); --glass-dark-border:rgba(255,255,255,.14);
+  --glass-highlight:inset 0 1px 0 rgba(255,255,255,.5);
+  --glass-shadow:0 10px 32px rgba(16,20,28,.14), inset 0 1px 0 rgba(255,255,255,.45);
+  /* Flatter, tighter shadows for a crisp enterprise feel, warmed to the ink. */
+  --shadow-xs:0 1px 2px rgba(16,20,28,.06);
+  --shadow-sm:0 2px 6px rgba(16,20,28,.07), 0 1px 2px rgba(16,20,28,.05);
+  --shadow-md:0 8px 22px rgba(16,20,28,.10), 0 2px 6px rgba(16,20,28,.06);
+  --shadow-lg:0 20px 48px rgba(16,20,28,.15), 0 4px 12px rgba(16,20,28,.08);
+  --shadow:var(--shadow-md);
+  /* Product imagery shows its true colours at all times (no hover recolour). */
+  --img-idle:none;
+  --img-active:none;
+  /* Bento hero media rests dimmed to the footer's dark tone, then reveals its
+     real colours on hover. */
+  --img-hero-idle:brightness(.4) saturate(.72) contrast(1.02);
+  /* Footer surface, reused by the hero so its resting colour matches exactly. */
+  --footer-surface:linear-gradient(180deg, #151b25 0%, #10141c 100%);
+}
+/* Reusable liquid-glass utilities. */
+.glass { background:var(--glass-light); -webkit-backdrop-filter:var(--glass-blur); backdrop-filter:var(--glass-blur); border:1px solid var(--glass-light-border); box-shadow:var(--glass-shadow); }
+.glass--dark { background:var(--glass-dark); -webkit-backdrop-filter:var(--glass-blur); backdrop-filter:var(--glass-blur); border:1px solid var(--glass-dark-border); box-shadow:var(--glass-highlight); color:#fff; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background:var(--glass-light-strong); }
+  .glass--dark { background:rgba(21,27,37,.94); }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--paper); overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; height: auto; }
+/* Long identifiers (order numbers, emails, SKUs) must not force horizontal scroll. */
+h1, h2, h3, p, small, td, b, strong { overflow-wrap: break-word; }
+h1, h2, h3, p { margin-top: 0; }
+h1, h2, h3, .brand { font-family: 'Space Grotesk', system-ui, sans-serif; letter-spacing: -.02em; line-height: 1.14; font-weight: 600; }
+p { color: var(--muted); line-height: 1.65; }
+input, select, textarea { width: 100%; padding: .82rem .95rem; border: 1px solid var(--line); border-radius: 8px; outline: none; background: white; color: var(--ink); transition: border-color var(--motion-fast, 160ms) var(--ease-in-out, ease), box-shadow var(--motion-fast, 160ms) var(--ease-in-out, ease); }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--line-strong); }
+input:focus, select:focus, textarea:focus { border-color: var(--brand-accent); box-shadow: 0 0 0 3px rgba(255,144,16,.22); }
+textarea { min-height: 110px; resize: vertical; }
+label { display: grid; gap: .45rem; color: #2b2f38; font-size: .86rem; font-weight: 600; }
+small { color: var(--muted); }

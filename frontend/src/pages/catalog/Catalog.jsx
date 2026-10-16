@@ -1,0 +1,12 @@
+import { useMemo } from 'react'; import { useNavigate, useSearchParams } from 'react-router-dom'
+import ProductCard from '../../components/product-card/ProductCard.jsx'; import ProductSkeleton from '../../components/product-skeleton/ProductSkeleton.jsx'; import Notice from '../../components/notice/Notice.jsx'
+import Reveal from '../../components/motion/reveal/Reveal.jsx'
+import { productService } from '../../services/products/productService.js'; import { categories } from '../../constants/catalog/catalogOptions.js'; import { useAsync } from '../../hooks/async/useAsync.js'; import { useAuth } from '../../hooks/auth/useAuth.js'; import { useCart } from '../../hooks/cart/useCart.js'; import { label } from '../../utils/format/formatters.js'
+
+export default function Catalog() {
+  const [params, setParams] = useSearchParams(); const query = params.get('search') || ''; const category = params.get('category') || ''; const { session } = useAuth(); const { addItem } = useCart(); const navigate = useNavigate(); const { data = [], loading, error } = useAsync(productService.list, [])
+  const products = useMemo(() => (data || []).filter((p) => (!category || p.category === category) && `${p.productName} ${p.brand} ${p.description || ''}`.toLowerCase().includes(query.toLowerCase())), [data, query, category])
+  const update = (key, value) => { const next = new URLSearchParams(params); value ? next.set(key, value) : next.delete(key); setParams(next) }
+  const add = async (p) => session ? addItem(p) : navigate('/login')
+  return <main className="page"><Reveal as="header" className="page-hero"><span className="eyebrow">The collection</span><h1>Technology that keeps up.</h1><p>Premium technology, trusted brands, delivered across South Africa.</p></Reveal><div className="filters"><input aria-label="Search products" placeholder="Search products or brands…" value={query} onChange={(e) => update('search', e.target.value)} /><select aria-label="Category" value={category} onChange={(e) => update('category', e.target.value)}><option value="">All categories</option>{categories.map((c) => <option key={c} value={c}>{label(c)}</option>)}</select><span>{products.length} products</span></div><Notice message={error} />{loading ? <ProductSkeleton count={8} /> : <div className="product-grid">{products.map((p) => <ProductCard key={p.productId} product={p} onAdd={add} />)}</div>}</main>
+}
