@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
 import AdminShell from '../../components/admin-shell/AdminShell.jsx'
 import Loader from '../../components/loader/Loader.jsx'
-import { paymentService } from '../../services/payments/paymentService.js'
+import Notice from '../../components/notice/Notice.jsx'
+import { dashboardService } from '../../services/dashboard/dashboardService.js'
 import { useAsync } from '../../hooks/async/useAsync.js'
 import { dateTime, label, money } from '../../utils/format/formatters.js'
 
@@ -15,29 +16,40 @@ const areas = [
 ]
 
 export default function AdminDashboard() {
-  const { data: payments = [], loading } = useAsync(paymentService.all, [])
-  const recent = [...(payments || [])]
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    .slice(0, 6)
+  const { data, loading, error } = useAsync(dashboardService.summary, [])
+  const metrics = data ? [
+    ['Users', data.totalUsers, `${data.enabledUsers} enabled`],
+    ['Recent logins', data.recentLoginsInPeriod, 'Last 30 days'],
+    ['Registrations', data.registrationsInPeriod, 'Last 30 days'],
+    ['Active carts', data.activeCarts, 'Current shopping activity'],
+    ['Orders', data.totalOrders, `${data.pendingOrders} awaiting payment`],
+    ['Successful revenue', money(data.successfulRevenue), `${data.successfulPayments} payments`],
+    ['Feedback', data.totalFeedback, 'Customer submissions'],
+  ] : []
 
   return <AdminShell title="Operations dashboard">
-    <div className="admin-grid">{areas.map(([path, title, copy], index) => <Link to={`/admin/${path}`} className="admin-tile" key={path}><span>0{index + 1}</span><h2>{title}</h2><p>{copy}</p><b>Manage</b></Link>)}</div>
+    <Notice message={error} />
+    {loading ? <Loader /> : <>
+      <section className="dashboard-metrics" aria-label="Store activity">
+        {metrics.map(([title, value, detail]) => <article className="dashboard-metric" key={title}><small>{title}</small><strong>{value}</strong><span>{detail}</span></article>)}
+      </section>
 
-    <section className="admin-section">
-      <div className="section__heading section__heading--flush"><h2>Recent payments</h2><Link to="/admin/payments">View all</Link></div>
-      {loading
-        ? <Loader />
-        : recent.length
+      <div className="admin-grid">{areas.map(([path, title, copy], index) => <Link to={`/admin/${path}`} className="admin-tile" key={path}><span>0{index + 1}</span><h2>{title}</h2><p>{copy}</p><b>Manage</b></Link>)}</div>
+
+      <section className="admin-section">
+        <div className="section__heading section__heading--flush"><h2>Recent payments</h2><Link to="/admin/payments">View all</Link></div>
+        {data?.recentPayments?.length
           ? <div className="table-wrap"><table>
               <thead><tr><th>Transaction</th><th>Order</th><th>Amount</th><th>Status</th></tr></thead>
-              <tbody>{recent.map((p) => <tr key={p.transactionId}>
-                <td><b>{p.transactionId}</b><small>{dateTime(p.createdAt)}</small></td>
-                <td>{p.orderId}</td>
-                <td>{money(p.capturedAmount)}</td>
-                <td><span className={`status status--${p.paymentStatus.toLowerCase()}`}>{label(p.paymentStatus)}</span></td>
+              <tbody>{data.recentPayments.map((payment) => <tr key={payment.transactionId}>
+                <td><b>{payment.transactionId}</b><small>{dateTime(payment.createdAt)}</small></td>
+                <td>{payment.orderId}</td>
+                <td>{money(payment.capturedAmount)}</td>
+                <td><span className={`status status--${payment.paymentStatus.toLowerCase()}`}>{label(payment.paymentStatus)}</span></td>
               </tr>)}</tbody>
             </table></div>
           : <p className="empty">No payments recorded yet.</p>}
-    </section>
+      </section>
+    </>}
   </AdminShell>
 }

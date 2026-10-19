@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
+import Loader from '../../components/loader/Loader.jsx'
 import Notice from '../../components/notice/Notice.jsx'
 import VirtualCard from '../../components/virtual-card/VirtualCard.jsx'
 import CheckoutSteps from '../../components/checkout-steps/CheckoutSteps.jsx'
@@ -7,31 +8,44 @@ import OrderConfirmation from '../../components/order-confirmation/OrderConfirma
 import PaymentProcessing from '../../components/payment-processing/PaymentProcessing.jsx'
 import { paymentService } from '../../services/payments/paymentService.js'
 import { orderService } from '../../services/orders/orderService.js'
+import { useCart } from '../../hooks/cart/useCart.js'
 import { cardBrands, walletProviders } from '../../constants/catalog/catalogOptions.js'
 import { label, money } from '../../utils/format/formatters.js'
 
 const emptyBilling = { billingName: '', streetAddress: '', suburb: '', city: '', province: '', postalCode: '', country: 'South Africa' }
 const fromDelivery = (d) => d ? { billingName: d.recipientName || '', streetAddress: d.streetAddress || '', suburb: d.suburb || '', city: d.city || '', province: d.province || '', postalCode: d.postalCode || '', country: d.country || 'South Africa' } : { ...emptyBilling }
+const paidStatuses = new Set(['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'])
 
 export default function Payment() {
   const { orderId } = useParams()
-  const [order, setOrder] = useState(useLocation().state?.order || null)
+  const location = useLocation()
+  const { refresh: refreshCart } = useCart()
+  const [order, setOrder] = useState(location.state?.order || null)
+  const [orderLoading, setOrderLoading] = useState(!location.state?.order)
   const [method, setMethod] = useState('CARD')
   const [card, setCard] = useState({ paymentToken: '', cardBrand: 'VISA', cardholderName: '', cardLastFourDigits: '' })
   const [wallet, setWallet] = useState({ walletProvider: 'PAYPAL', walletToken: '' })
-  const [billing, setBilling] = useState(emptyBilling)
+  const [billing, setBilling] = useState(() => fromDelivery(location.state?.order?.deliveryAddress))
   const [sameAsDelivery, setSameAsDelivery] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [confirmed, setConfirmed] = useState(false)
+  const [confirmed, setConfirmed] = useState(() => paidStatuses.has(location.state?.order?.orderStatus))
 
-  // Recover the order on refresh (navigation state is lost) and keep billing in
-  // sync with the delivery address the customer already captured at checkout.
+  // Navigation state is only a fast initial render. Always fetch the order so
+  // refreshes, another-tab checkout revisions, and completed payments recover.
   useEffect(() => {
     let active = true
-    const apply = (data) => { if (!active || !data) return; setOrder(data); setBilling(fromDelivery(data.deliveryAddress)) }
-    if (order) { setBilling(fromDelivery(order.deliveryAddress)); return () => { active = false } }
-    orderService.get(orderId).then(apply).catch(() => {})
+    setOrderLoading(true)
+    orderService.get(orderId)
+      .then((data) => {
+        if (!active) return
+        setOrder(data)
+        setBilling(fromDelivery(data.deliveryAddress))
+        setConfirmed(paidStatuses.has(data.orderStatus))
+        setError('')
+      })
+      .catch((err) => { if (active) setError(err.message || 'Unable to load this order') })
+      .finally(() => { if (active) setOrderLoading(false) })
     return () => { active = false }
   }, [orderId])
 
@@ -39,28 +53,79 @@ export default function Payment() {
   const total = breakdown?.finalInvoiceTotal
   const delivery = order?.deliveryAddress
 
-  const effectiveBilling = useMemo(
-    () => (sameAsDelivery && delivery) ? fromDelivery(delivery) : billing,
-    [sameAsDelivery, delivery, billing],
-  )
-
   const changeCard = (e) => setCard({ ...card, [e.target.name]: e.target.value })
   const changeBilling = (e) => setBilling({ ...billing, [e.target.name]: e.target.value })
 
+  const confirmPaidOrder = async (latestOrder) => {
+    if (latestOrder) setOrder(latestOrder)
+    else setOrder((current) => current ? { ...current, orderStatus: 'PAID' } : current)
+    setConfirmed(true)
+    setError('')
+    try { await refreshCart() } catch { /* confirmation is authoritative */ }
+  }
+
+  const reconcilePayment = async () => {
+    const [orderResult, paymentsResult] = await Promise.allSettled([
+      orderService.get(orderId),
+      paymentService.forOrder(orderId),
+    ])
+    const latestOrder = orderResult.status === 'fulfilled' ? orderResult.value : null
+    const attempts = paymentsResult.status === 'fulfilled' ? paymentsResult.value : []
+    const successful = attempts.some((attempt) => attempt.paymentStatus === 'SUCCESSFUL')
+    if (latestOrder && paidStatuses.has(latestOrder.orderStatus)) { await confirmPaidOrder(latestOrder); return true }
+    if (successful) { await confirmPaidOrder(latestOrder); return true }
+    if (latestOrder) setOrder(latestOrder)
+    return false
+  }
+
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setError('')
-    const startedAt = Date.now()
-    // Keep the processing splash on screen long enough to read, even on a fast gateway.
-    const settle = async () => { const elapsed = Date.now() - startedAt; if (elapsed < 1400) await new Promise((r) => setTimeout(r, 1400 - elapsed)) }
+    let paymentStarted = false
     try {
+      const displayedOrder = order
+      const latestOrder = await orderService.get(orderId)
+
+      if (paidStatuses.has(latestOrder.orderStatus)) { await confirmPaidOrder(latestOrder); return }
+      if (latestOrder.orderStatus !== 'PENDING_PAYMENT') {
+        setOrder(latestOrder)
+        setError(`This order is ${label(latestOrder.orderStatus).toLowerCase()} and cannot be paid.`)
+        return
+      }
+
+      const displayedCents = Math.round(Number(displayedOrder?.financialBreakdown?.finalInvoiceTotal) * 100)
+      const latestCents = Math.round(Number(latestOrder.financialBreakdown?.finalInvoiceTotal) * 100)
+      const changed = displayedOrder?.updatedAt !== latestOrder.updatedAt || displayedCents !== latestCents
+      setOrder(latestOrder)
+      if (changed) {
+        if (sameAsDelivery) setBilling(fromDelivery(latestOrder.deliveryAddress))
+        setError('Your order changed. Review the updated items and total before simulating payment.')
+        return
+      }
+
+      const billingForRequest = sameAsDelivery ? fromDelivery(latestOrder.deliveryAddress) : billing
+      paymentStarted = true
       const result = method === 'CARD'
-        ? await paymentService.payCard({ orderId, paymentToken: card.paymentToken, cardBrand: card.cardBrand, cardholderName: card.cardholderName, cardLastFourDigits: card.cardLastFourDigits, billingLocation: effectiveBilling })
-        : await paymentService.payWallet({ orderId, walletProvider: wallet.walletProvider, walletToken: wallet.walletToken, billingLocation: effectiveBilling })
-      await settle()
-      if (result.paymentStatus === 'SUCCESSFUL') setConfirmed(true)
-      else setError(result.failureReason || 'Payment was declined')
-    } catch (err) { await settle(); setError(err.message) } finally { setBusy(false) }
+        ? await paymentService.payCard({ orderId, paymentToken: card.paymentToken, cardBrand: card.cardBrand, cardholderName: card.cardholderName, cardLastFourDigits: card.cardLastFourDigits, billingLocation: billingForRequest })
+        : await paymentService.payWallet({ orderId, walletProvider: wallet.walletProvider, walletToken: wallet.walletToken, billingLocation: billingForRequest })
+
+      if (result.paymentStatus === 'SUCCESSFUL') {
+        let paidOrder = latestOrder
+        try { paidOrder = await orderService.get(orderId) } catch { paidOrder = { ...latestOrder, orderStatus: 'PAID' } }
+        await confirmPaidOrder(paidOrder)
+      } else if (result.paymentStatus === 'FAILED') {
+        setError(result.failureReason || 'Simulated payment was declined')
+      } else if (!(await reconcilePayment())) {
+        setError('Payment status could not be confirmed. Check your orders before trying again.')
+      }
+    } catch (err) {
+      if (paymentStarted && await reconcilePayment()) return
+      setError(paymentStarted && err?.status === 0
+        ? 'Connection was lost and payment could not be confirmed. Check your orders before trying again.'
+        : err?.message || 'Payment could not be processed')
+    } finally { setBusy(false) }
   }
+
+  if (orderLoading && !order) return <main className="page"><Loader /></main>
 
   if (confirmed && order) {
     return <main className="page payment-page">
@@ -69,9 +134,12 @@ export default function Payment() {
     </main>
   }
 
+  if (!order) return <main className="page narrow"><Notice message={error || 'Order not found'} /></main>
+  if (order.orderStatus !== 'PENDING_PAYMENT') return <main className="page narrow"><Notice message={`This order is ${label(order.orderStatus).toLowerCase()} and cannot be paid.`} /></main>
+
   return <main className="page payment-page">
     {busy && <PaymentProcessing amount={total != null ? money(total) : ''} />}
-    <header className="page-hero page-hero--small page-hero--flow"><span className="eyebrow">Final step</span><h1>Payment {total != null && <small>{money(total)}</small>}</h1></header>
+    <header className="page-hero page-hero--small page-hero--flow"><span className="eyebrow">Final step</span><h1>Simulated payment {total != null && <small>{money(total)}</small>}</h1></header>
     <CheckoutSteps current={3} />
     <Notice message={error} />
     <div className="payment-layout">
@@ -80,6 +148,7 @@ export default function Payment() {
           <button type="button" className={method === 'CARD' ? 'active' : ''} onClick={() => setMethod('CARD')}>Card</button>
           <button type="button" className={method === 'WALLET' ? 'active' : ''} onClick={() => setMethod('WALLET')}>Digital wallet</button>
         </div>
+        <p className="payment-simulation-note">Simulation only — no real card, wallet, bank, or money is charged.</p>
 
         {method === 'CARD'
           ? <div className="pay-method">
@@ -89,7 +158,7 @@ export default function Payment() {
                 <label className="span-2">Cardholder name<input name="cardholderName" required value={card.cardholderName} onChange={changeCard} placeholder="Name on card" /></label>
                 <label>Last 4 digits<input name="cardLastFourDigits" required inputMode="numeric" pattern="[0-9]{4}" maxLength="4" value={card.cardLastFourDigits} onChange={changeCard} placeholder="4242" /></label>
                 <label>Payment token<input name="paymentToken" minLength="12" required value={card.paymentToken} onChange={changeCard} placeholder="tok_test_card_success_0001" /></label>
-                <small className="span-2 form__hint">Test gateway — use any 12+ character token to succeed, or <code>TEST-PAYMENT-DECLINED</code> to simulate a decline.</small>
+                <small className="span-2 form__hint">Use any 12+ character test token to succeed. Use <code>TEST-PAYMENT-DECLINED</code> with either method to simulate a decline.</small>
               </div>
             </div>
           : <div className="form form--grid pay-fields">
@@ -104,7 +173,7 @@ export default function Payment() {
           <div className="form form--grid">{Object.keys(emptyBilling).map((key) => <label key={key} className={key === 'streetAddress' ? 'span-2' : ''}>{label(key)}<input name={key} required={key !== 'suburb'} value={billing[key]} onChange={changeBilling} /></label>)}</div>
         </>}
 
-        <button className="button button--primary button--full" disabled={busy || total == null}>{busy ? 'Processing…' : total != null ? `Pay ${money(total)}` : 'Pay securely'}</button>
+        <button className="button button--primary button--full" disabled={busy || orderLoading || total == null}>{busy ? 'Simulating…' : total != null ? `Simulate payment ${money(total)}` : 'Simulate payment'}</button>
       </form>
 
       <aside className="summary payment-summary">

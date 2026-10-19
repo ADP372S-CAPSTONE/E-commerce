@@ -9,9 +9,9 @@ export default function Tracking() {
     e.preventDefault(); setBusy(true); setError(''); setSearched(true)
     try {
       const value = number.trim()
-      // Customers know their order number, so try that first, then fall back to a courier tracking number.
-      let result = await deliveryService.trackOrder(value)
-      if (!result?.length) result = await deliveryService.trackNumber(value)
+      const result = value.toUpperCase().startsWith('ORD-')
+        ? await deliveryService.trackOrder(value)
+        : await deliveryService.trackNumber(value)
       setEvents(result || [])
     } catch (err) { setError(err.message); setEvents([]) } finally { setBusy(false) }
   }

@@ -1,12 +1,8 @@
 import './payment-processing.css'
 
-/**
- * Full-screen liquid-glass splash shown while a payment is being authorised.
- * Purely presentational — the parent controls when it is mounted.
- */
 export default function PaymentProcessing({ amount }) {
   return (
-    <div className="pay-processing" role="status" aria-live="polite" aria-label="Processing payment">
+    <div className="pay-processing" role="status" aria-live="polite" aria-label="Simulating payment">
       <div className="pay-processing__card">
         <div className="pay-processing__orb" aria-hidden="true">
           <span className="pay-processing__ring" />
@@ -19,10 +15,10 @@ export default function PaymentProcessing({ amount }) {
             </svg>
           </span>
         </div>
-        <h2>Processing payment</h2>
-        <p>Securely contacting your bank{amount ? ` for ${amount}` : ''}. This only takes a moment.</p>
+        <h2>Simulating payment</h2>
+        <p>Running the local test payment{amount ? ` for ${amount}` : ''}.</p>
         <div className="pay-processing__bar" aria-hidden="true"><span /></div>
-        <span className="pay-processing__note">Encrypted · Do not close this window</span>
+        <span className="pay-processing__note">Demo only · No real charge</span>
       </div>
     </div>
   )

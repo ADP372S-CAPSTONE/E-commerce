@@ -7,12 +7,12 @@
   margin: 0 auto 1.4rem;
   padding: .7rem 1rem;
   list-style: none;
-  background: var(--glass-light);
+  background: var(--glass-panel);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-light-border);
-  border-radius: 16px;
-  box-shadow: var(--glass-shadow);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glass-shadow-panel), 0 0 0 1px var(--glass-hairline);
 }
 .checkout-steps__step {
   position: relative;

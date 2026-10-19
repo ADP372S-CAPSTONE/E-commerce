@@ -14,16 +14,29 @@ export async function api(path, options = {}) {
   const headers = { Accept: 'application/json', ...options.headers }
   if (options.body && !(options.body instanceof FormData)) headers['Content-Type'] = 'application/json'
   if (session?.token) headers.Authorization = `Bearer ${session.token}`
-  const response = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+
+  let response
+  try {
+    response = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  } catch {
+    throw new ApiError('Unable to reach the server. Check your connection and try again.', 0)
+  }
+
   if (response.status === 204) return null
   const type = response.headers.get('content-type') || ''
-  const data = type.includes('json') ? await response.json() : await response.text()
+  let data
+  try { data = type.includes('json') ? await response.json() : await response.text() }
+  catch { data = '' }
+
   if (!response.ok) {
-    if (response.status === 401) window.dispatchEvent(new Event('auth:expired'))
-    const fields = data && typeof data === 'object' && !('message' in data) ? data : {}
-    const message = data?.message || (typeof data === 'string' && data) || Object.values(fields)[0] || `Request failed (${response.status})`
+    if (response.status === 401 && session?.token) window.dispatchEvent(new Event('auth:expired'))
+    const legacyFields = data && typeof data === 'object' && !('message' in data) ? data : {}
+    const fields = data?.fieldErrors || legacyFields
+    const firstFieldError = Object.values(fields)[0]
+    const message = firstFieldError || data?.message || (typeof data === 'string' && data) || `Request failed (${response.status})`
     throw new ApiError(message, response.status, fields)
   }
+
   return data
 }
 

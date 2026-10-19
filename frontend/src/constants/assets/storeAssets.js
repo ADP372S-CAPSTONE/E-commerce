@@ -1,7 +1,12 @@
 export const storeAssets = {
-  logo: '/images/brand/logo-visible-cropped.png',
+  logo: '/images/brand/main-logo.svg',
+  aboutHero: '/images/brand/lady%201.png',
+  aboutTeam: '/images/brand/Incredible%20team.png',
   homeHero: '/images/design/account-banner.png',
   bentoLady: '/images/design/bento-lady.png',
+  myOrders: '/images/design/my%20order.png',
+  myDelivery: '/images/design/my%20delivery.png',
+  myAccount: '/images/design/Account.png',
   locals: '/images/design/locals.png',
   heroVideos: ['/video/new-laptop1.mp4', '/video/new-desktop1.mp4', '/video/new-ram.mp4'],
   /** Brand film. Native 1280x720, 10s. Displayed at most at native width so it never upscales. */

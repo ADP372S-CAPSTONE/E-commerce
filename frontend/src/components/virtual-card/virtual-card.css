@@ -117,3 +117,8 @@
   .virtual-card { transition: background 260ms ease; }
   .virtual-card:hover { transform: none; }
 }
+
+/* Align the simulator with the premium monochrome glass system. */
+.virtual-card, .virtual-card--visa, .virtual-card--mastercard, .virtual-card--american_express, .virtual-card--other { background: linear-gradient(135deg, rgba(8,8,10,.94), rgba(45,43,50,.84)); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border: 1px solid rgba(255,255,255,.18); border-radius: var(--radius-panel); box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 18px 42px rgba(0,0,0,.24); }
+@media (hover:hover) and (pointer:fine) { .virtual-card--visa:hover, .virtual-card--mastercard:hover, .virtual-card--american_express:hover, .virtual-card--other:hover { background: linear-gradient(135deg, rgba(8,8,10,.96), rgba(67,62,75,.88)); transform: translateY(-2px); } }
+@media (prefers-reduced-motion:reduce) { .virtual-card { transition:none; } }
